@@ -95,6 +95,7 @@ E, em paralelo:
 |---|---|---|
 | P0 | Desenho de polígono | Draw/edit/delete de polígonos no mapa (MapLibre/Leaflet) |
 | P0 | Relatório sociodemográfico | Geração automática (estrutura da Seção 4) |
+| P0 | **Mapas de calor por setor** | **Padrão validado (2026, US Vila Jardim): painel de 5 mapas — densidade populacional, renda média, alfabetização, % idosos 60+, tipo de setor (vila/favela) — coropléticos por setor censitário, bordas dos setores visíveis, contorno do território em preto** |
 | P0 | Camada de setores censitários | Visualização da malha 2022 (IBGE) |
 | P1 | Alinhamento a setores | Ajuste do polígono desenhado aos limites de setores ("snap") |
 | P1 | Sugestão de território | A partir de endereços/geocódigos da equipe (auto-built área) |
@@ -133,6 +134,31 @@ O relatório inclui sinais úteis para a prática, gerados automaticamente:
 - Setores de tipo especial (prisão, hospital — população não domiciliar significativa);
 - Vazios de endereçamento (áreas do território sem endereços CNEFE → possíveis
   ocupações informais ou áreas rurais).
+
+---
+
+### 4.3 Painel de mapas do território (padrão validado em 2026)
+
+Além dos números, o relatório deve incluir um **painel de 5 mapas coropléticos por setor
+censitário** — o formato aprovado pelo autor em testes com a US Vila Jardim:
+
+| Mapa | Indicador por setor | Destino visual |
+|---|---|---|
+| 1. Densidade populacional | População (V01006) ÷ área do setor (geometria UTM) | YlOrRd |
+| 2. Renda média | V06004 (winsorizada p2–p98) | RdYlGn |
+| 3. Alfabetização | Σ(alfabetizados M+F) ÷ Σ(15+ anos) × 100 | RdYlBu |
+| 4. % Idosos 60+ | (V01018+V01019+V01029+V01030) ÷ V01006 × 100 | Purples |
+| 5. Tipo de setor | CD_TIPO (vila/favela destacada em vermelho) | Cores fixas + legenda |
+
+Regras de estilo: bordas dos setores visíveis em branco (linewidth ~0,6–0,8), contorno do
+território desenhado em preto (linewidth ~1,8), título com as estatísticas do território,
+`set_axis_off()`. Winsorização sempre (p2–p98), para que outliers não dominem a escala de
+cor. Receita completa: skill `mapas-territorio-aps`.
+
+**Valor para a pesquisa:** estes mapas são o *gabarito visual* ideal para o questionário
+com profissionais — cada entrevistado pode estimar, sobre um mapa mudo do território, onde
+estão as áreas mais pobres, mais densas, mais envelhecidas; o contraste com o painel real
+mede o conhecimento espacial de forma direta e intuitiva.
 
 ---
 
