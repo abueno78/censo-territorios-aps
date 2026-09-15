@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+
+# Ambiente / editores
+.vscode/
+.idea/
+.ruby-lsp/
+
+# Dados brutos grandes (re-geráveis pelos scripts 00_prepara_dados.py)
+inputs/*.csv
+inputs/*.zip
+
+# Arquivos temporários de análise
+*.npy
+*.log
