@@ -287,6 +287,77 @@ O agregado do IBGE apresenta **valores imputados extremos** em alguns setores (r
 | Correlação média × mediana | — | 0,964 |
 | US com bandeira | 39 | **0** |
 
+### 8.2.1 Variabilidade da renda (desvios, CV e percentis)
+
+Para descrever a **variabilidade** da renda por território (fundamental para
+interpretar a média), a v2 implementa medidas de dispersão corretas, que
+revelaram um erro adicional na v1.
+
+**Erro do `cv_renda` da v1.** O script antigo calculava:
+
+```python
+cv_renda = V06004.std() / V06004.mean()   # groupby US — sem pesos, sem V06005
+```
+
+Ou seja: desvio padrão **não ponderado** das médias setoriais dividido pela
+média **não ponderada** — e, principalmente, **sem incluir a variância interna
+dos setores (V06005)**, que o IBGE divulga no agregado e que é a maior fonte de
+desigualdade. Resultado: CV sistematicamente **subestimado** (Vila Jardim: 62,7% →
+114,9% no cálculo correto).
+
+**Cálculo correto implementado (fórmula de variância total de estratos):**
+
+```
+peso_i        = V06001 (responsáveis) × fator_proporcao (CNEFE)
+μ_US          = Σ(V06004_w × peso) ÷ Σpeso                              → média ponderada
+
+Var_dentro    = Σ(V06005_w × peso) ÷ Σpeso    (variância interna dos setores, do IBGE)
+Var_entre     = Σ[peso × (μ_setor − μ_US)²] ÷ Σpeso   (dispersão entre setores)
+Var_total     = Var_dentro + Var_entre
+DP_US         = √Var_total
+CV_US         = DP_US ÷ μ_US × 100
+```
+
+Percentis ponderados (P10, P25, P75, P90) calculados por **quantil ponderado**
+das rendas médias setoriais (pesos = responsáveis × fator).
+
+**Exemplo — US Vila Jardim (46 setores):**
+
+| Medida | v1 (antiga) | v2 (correta) |
+|---|---|---|
+| Renda média | R$ 470.339 (bug, sem dividir) | **R$ 9.824** (winsorizada) |
+| Desvio padrão | — | **R$ 11.283** |
+| CV | 62,7% ❌ (sem V06005, sem pesos) | **114,9%** ✅ |
+| P10 | — | R$ 2.753 |
+| P25 | — | R$ 5.481 |
+| Mediana (aprox.) | R$ 7.367 | R$ 7.367 (vem da v1) |
+| P75 | — | R$ 12.616 |
+| P90 | — | R$ 19.239 |
+| Razão P90/P10 | — | ~7,0× |
+
+Decomposição da variância da Vila Jardim: Var_dentro ≈ R$ 101M (79%) +
+Var_entre ≈ R$ 26M (21%) → a maior parte da desigualdade está **dentro** dos
+setores, não entre eles — exatamente o que a v1 não enxergava.
+
+**Exemplo de descrição pronta para texto científico:**
+
+> O território apresenta renda média de R$ 9.824 (mediana R$ 7.367), com elevada
+> desigualdade interna (DP = R$ 11.283; CV = 114,9%). Um responsável do P10 ganha
+> R$ 2.753 enquanto o do P90 ganha R$ 19.239 (razão de ~7×). A assimetria moderada
+> (média/mediana = 1,07) indica que o contraste vem de segmentos concentrados, não
+> de cauda longa: as vilas do sul (P25 ≈ R$ 5.481) convivem com o núcleo de alta
+> renda do norte (P75 ≈ R$ 12.616).
+
+**Valores municipais (133 US):** o CV correto tem mediana de **107%** (mín. 58%,
+máx. 421%) — todos os territórios de POA apresentam desigualdade alta. As US mais
+desiguais: Farrapos (421%), Nonoai (343%), Santa Anita (327%). A Vila Jardim está
+na mediana do ranking.
+
+**Colunas na tabela v2:** `renda_dp`, `renda_cv` (%), `renda_p10`, `renda_p25`,
+`renda_p75`, `renda_p90`, além de `renda_media_winsor`, `n_setores_renda_ok` e
+`flag_renda_suspeita`. As colunas antigas `renda_media_ponderada` e `cv_renda`
+**não devem ser usadas** (soma sem divisão e CV sem variância interna).
+
 ### 8.3 Contagem de endereços e estabelecimentos (CNEFE)
 
 Foram agregados, por território de US, os dados de espécie e tipo de edificação do CNEFE:
@@ -432,7 +503,7 @@ Optou-se por geocodificar **contra o CNEFE local** em vez de APIs públicas (Goo
 
 **Densidades e proporções:** `densidade_hab_km2`, `densidade_enderecos_km2`, `pct_apartamentos`, `razao_apart_casa`, `pct_est_saude`, `pct_est_religiosos`
 
-**Renda corrigida:** `renda_media_winsor`, `n_setores_renda_ok`, `flag_renda_suspeita`
+**Renda corrigida e variabilidade:** `renda_media_winsor`, `renda_dp`, `renda_cv`, `renda_p10`, `renda_p25`, `renda_p75`, `renda_p90`, `n_setores_renda_ok`, `flag_renda_suspeita`
 
 **Validação:** `pop_grade2022`, `pop_hrsl`, `dif_pct`
 
@@ -456,7 +527,7 @@ Optou-se por geocodificar **contra o CNEFE local** em vez de APIs públicas (Goo
 **Para o artigo/tese:**
 - Declarar o método como interpolação areal com ponderação dasimétrica por endereços CNEFE, citando IBGE (2025), IJSN e Salgado et al. (2025);
 - Apresentar a validação tripla como análise de sensibilidade (Grade oficial + HRSL);
-- Usar `renda_media_winsor` (nunca `renda_media_ponderada` da v1, que está com erro de agregação);
+- Usar `renda_media_winsor` (nunca `renda_media_ponderada` da v1, que está com erro de agregação) e descrever a variabilidade com `renda_dp`, `renda_cv` e os percentis `renda_p10`–`renda_p90` (nunca `cv_renda` da v1, que ignora a variância interna V06005 e os pesos);
 - Utilizar `densidade_hab_km2` e `pct_apartamentos` como covariáveis de contexto territorial.
 
 **Melhorias potenciais (não implementadas):**

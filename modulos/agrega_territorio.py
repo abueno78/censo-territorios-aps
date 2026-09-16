@@ -63,12 +63,26 @@ def agregar_cnefe_por_us(cnefe: pd.DataFrame, us: gpd.GeoDataFrame) -> pd.DataFr
     return res
 
 
+def _quantil_ponderado(vals: np.ndarray, pesos: np.ndarray, q: float) -> float:
+    """Quantil ponderado (por responsáveis×fator) das rendas setoriais."""
+    o = np.argsort(vals)
+    s = np.cumsum(pesos[o])
+    if s[-1] <= 0:
+        return np.nan
+    return vals[o][np.searchsorted(s, q * s[-1])]
+
+
 def corrigir_renda_us(base: pd.DataFrame) -> pd.DataFrame:
     """Recalcula renda média por US com winsorização no nível do SETOR.
 
     O agregado do IBGE traz renda média (V06004) com valores imputados extremos
     (ex.: US São Vicente Mártir R$ 121 mil). Winsoriza a nível de setor
     (p1/p99 + teto R$ 100 mil) antes de ponderar por responsáveis × fator.
+
+    Variabilidade: combina variância DENTRO dos setores (V06005, que o IBGE já
+    divulga) com variância ENTRE setores (dispersão das médias setoriais) —
+    fórmula de variância total de estratos. O cv_renda da v1 usava apenas o
+    std não-ponderado das médias setoriais, ignorando V06005 → subestimado.
     """
     try:
         comp = pd.read_csv(cfg.DATA / "composicao_com_hrsl.csv")
@@ -80,25 +94,45 @@ def corrigir_renda_us(base: pd.DataFrame) -> pd.DataFrame:
 
     comp["CD_SETOR"] = comp["CD_SETOR"].astype(str).str.strip()
     banco["CD_SETOR"] = banco["CD_SETOR"].astype(str).str.strip()
-    b = banco[["CD_SETOR", "V06001", "V06002", "V06004", "V06005"]].copy()
-    for c in ("V06001", "V06004", "V06005"):
+    b = banco[["CD_SETOR", "V06001", "V06002", "V06004", "V06005", "V06006"]].copy()
+    for c in ("V06001", "V06004", "V06005", "V06006"):
         b[c] = pd.to_numeric(b[c], errors="coerce")
 
     lo, hi = b["V06004"].quantile(0.01), b["V06004"].quantile(0.99)
     b["V06004_w"] = b["V06004"].clip(lo, hi).where(b["V06004"] < 100_000)
+    vhi = b["V06005"].quantile(0.99)
+    b["V06005_w"] = b["V06005"].clip(upper=vhi)
 
     m = comp.merge(b, on="CD_SETOR", how="inner")
     m["peso"] = m["V06001"] * m["fator_proporcao"]
-    agg = m.groupby("Unidade de Saúde").apply(
-        lambda g: pd.Series({
-            "renda_media_winsor": (g["V06004_w"] * g["peso"]).sum() / g["peso"].sum()
-            if g["peso"].sum() > 0 else np.nan,
-            "n_setores_renda_ok": g["V06004_w"].notna().sum(),
-        }), include_groups=False).reset_index()
+
+    def _agg(g: pd.DataFrame) -> pd.Series:
+        w = g["peso"]
+        if w.sum() <= 0 or g["V06004_w"].notna().sum() == 0:
+            return pd.Series({"renda_media_winsor": np.nan, "n_setores_renda_ok": 0})
+        mu = (g["V06004_w"] * w).sum() / w.sum()
+        var_within = (g["V06005_w"] * w).sum() / w.sum()
+        var_between = (w * (g["V06004_w"] - mu) ** 2).sum() / w.sum()
+        var_total = var_within + var_between
+        vals = g["V06004_w"].values
+        ps = w.values
+        return pd.Series({
+            "renda_media_winsor": mu,
+            "renda_dp": np.sqrt(max(var_total, 0)),
+            "renda_cv": np.sqrt(max(var_total, 0)) / mu * 100,
+            "renda_p10": _quantil_ponderado(vals, ps, 0.10),
+            "renda_p25": _quantil_ponderado(vals, ps, 0.25),
+            "renda_p75": _quantil_ponderado(vals, ps, 0.75),
+            "renda_p90": _quantil_ponderado(vals, ps, 0.90),
+            "n_setores_renda_ok": int(g["V06004_w"].notna().sum()),
+        })
+
+    agg = m.groupby("Unidade de Saúde").apply(_agg, include_groups=False).reset_index()
     out = base.merge(agg, on="Unidade de Saúde", how="left")
     out["flag_renda_suspeita"] = (out["renda_media_winsor"] / out["renda_mediana_aprox"].replace(0, np.nan) > 2.5) | (
         out["n_setores_renda_ok"].fillna(0) < 3)
-    print(f"  Renda winsorizada (p1={lo:,.0f} / p99={hi:,.0f}) — {out['flag_renda_suspeita'].sum()} US sinalizadas")
+    print(f"  Renda winsorizada (p1={lo:,.0f} / p99={hi:,.0f}) — {out['flag_renda_suspeita'].sum()} US sinalizadas | "
+          f"DP/CV/P10/P90 calculados ({out['renda_cv'].notna().sum()} US)")
     return out
 
 
