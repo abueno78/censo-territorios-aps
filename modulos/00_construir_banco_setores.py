@@ -74,6 +74,17 @@ def save_progress(p):
         json.dump(p, f)
 
 
+def _checar_xlsx2csv():
+    """Garante que o xlsx2csv está disponível (necessário para ler os XLSXs do IBGE)."""
+    try:
+        subprocess.run([sys.executable, "-m", "xlsx2csv", "--version"],
+                       capture_output=True, check=True)
+    except Exception:
+        raise RuntimeError(
+            "xlsx2csv não está instalado — necessário para converter os XLSXs do IBGE.\n"
+            "Instale com:  pip install xlsx2csv")
+
+
 def filtrar_um_xlsx(nome: str, arquivo: str) -> Path:
     """Converte XLSX → CSV e filtra apenas setores de Porto Alegre."""
     entrada = AGREGADOS_DIR / arquivo
@@ -95,7 +106,7 @@ def filtrar_um_xlsx(nome: str, arquivo: str) -> Path:
     with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
         tmp_path = tmp.name
 
-    subprocess.run(["xlsx2csv", str(entrada), tmp_path], check=True)
+    subprocess.run([sys.executable, "-m", "xlsx2csv", str(entrada), tmp_path], check=True)
 
     print(f"  [{nome}] Filtrando setores de Porto Alegre ...")
     with open(tmp_path, "r", encoding="utf-8") as f:
@@ -162,6 +173,7 @@ def principal():
             return
 
     AGREGADOS_DIR.mkdir(parents=True, exist_ok=True)
+    _checar_xlsx2csv()
     progress = load_progress()
     csvs_poa = []
 

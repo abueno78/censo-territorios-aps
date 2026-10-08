@@ -2,133 +2,120 @@
 """
 baixar_dados.py — Baixa os dados brutos necessários para rodar o pipeline.
 
-Precisa ser executado UMA VEZ antes de rodar os módulos.
-Os arquivos já processados (banco_agregados_poa_setores.csv, cnefe_poa.parquet,
-poa_tracts_2022.gpkg, composicao_com_hrsl.csv) estão versionados no repositório
-dentro de data/ — este script serve de documentação da origem e para regeneração.
+Rode UMA VEZ antes de executar os módulos (ou use os arquivos já versionados
+em data/ — este script existe para documentar a origem e permitir regeneração).
 
 USO:
     pip install -r requirements.txt
     python baixar_dados.py
 """
 
-import os
-import sys
-import subprocess
+import zipfile
 from pathlib import Path
 
-BASE  = Path(__file__).resolve().parent
-DATA  = BASE / "data"
+BASE   = Path(__file__).resolve().parent
+DATA   = BASE / "data"
 INPUTS = BASE / "inputs"
 
 DATA.mkdir(exist_ok=True)
 INPUTS.mkdir(exist_ok=True)
 
 
-# ─── 1. CNEFE — Cadastro Nacional de Endereços (IBGE FTP) ────────────────────
-# Fonte: ftp://ftp.ibge.gov.br/Censos/Censo_Demografico_2022/
-#        Cadastro_Nacional_de_Enderecos_Fins_Estatisticos/
-#        Municipios/RS_Rio_Grande_do_Sul.zip
-# O arquivo ZIP contém CSVs por município; o de POA é 4314902_PORTO_ALEGRE.csv
-# Tamanho: ~126 MB (CSV) → ~20 MB (parquet após 00_prepara_dados.py)
-
+# ─── 1. CNEFE — Cadastro Nacional de Endereços (IBGE, Censo 2022) ────────────
+# Fonte: ftp.ibge.gov.br → Cadastro_Nacional_de_Enderecos_para_Fins_Estatisticos
+#        → Censo_Demografico_2022 → Arquivos_CNEFE → CSV → Municipio → 43_RS
+# Arquivo por município: 4314902_PORTO_ALEGRE.zip (~17 MB, 762.239 endereços)
 CNEFE_URL = (
-    "https://ftp.ibge.gov.br/Censos/Censo_Demografico_2022/"
-    "Cadastro_Nacional_de_Enderecos_Fins_Estatisticos/"
-    "Municipios/RS_Rio_Grande_do_Sul.zip"
+    "https://ftp.ibge.gov.br/Cadastro_Nacional_de_Enderecos_para_Fins_Estatisticos/"
+    "Censo_Demografico_2022/Arquivos_CNEFE/CSV/Municipio/43_RS/4314902_PORTO_ALEGRE.zip"
 )
-CNEFE_ZIP  = DATA / "cnefe_rs.zip"
-CNEFE_CSV  = DATA / "cnefe_poa" / "4314902_PORTO_ALEGRE.csv"
-CNEFE_PQ   = DATA / "cnefe_poa.parquet"
+CNEFE_ZIP = DATA / "cnefe_poa.zip"
+CNEFE_DIR = DATA / "cnefe_poa"
+CNEFE_CSV = CNEFE_DIR / "4314902_PORTO_ALEGRE.csv"
+CNEFE_PQ  = DATA / "cnefe_poa.parquet"
+
 
 def baixar_cnefe():
     if CNEFE_PQ.exists():
-        print(f"✓ cnefe_poa.parquet já existe — pulando download do CNEFE")
+        print("✓ cnefe_poa.parquet já existe — pulando download do CNEFE")
         return
     if not CNEFE_CSV.exists():
-        print(f"↓ Baixando CNEFE RS ({CNEFE_URL}) ...")
+        print(f"↓ Baixando CNEFE de Porto Alegre (~17 MB) ...")
         import urllib.request
         urllib.request.urlretrieve(CNEFE_URL, CNEFE_ZIP)
-        print(f"  Descompactando ...")
-        import zipfile
-        (DATA / "cnefe_poa").mkdir(exist_ok=True)
+        CNEFE_DIR.mkdir(exist_ok=True)
         with zipfile.ZipFile(CNEFE_ZIP) as z:
             for member in z.namelist():
                 if "4314902" in member:
-                    z.extract(member, DATA / "cnefe_poa")
+                    z.extract(member, CNEFE_DIR)
                     print(f"  Extraído: {member}")
         CNEFE_ZIP.unlink()
-    print(f"  Convertendo para parquet ...")
+    print("  Convertendo para parquet ...")
     import pandas as pd
     df = pd.read_csv(CNEFE_CSV, sep=";", dtype=str, encoding="utf-8")
     df.to_parquet(CNEFE_PQ)
-    print(f"  ✓ cnefe_poa.parquet — {len(df):,} endereços")
+    print(f"  ✓ cnefe_poa.parquet — {len(df):,} endereços "
+          f"(esperado: 762.239)")
 
 
-# ─── 2. Malha de setores censitários 2022 (geobr) ────────────────────────────
-# Fonte: pacote geobr (R) ou API IBGE via geobr Python
-# Municício: 4314902 (Porto Alegre), ano 2022
+# ─── 2. Malha de setores censitários 2022 (IBGE) ─────────────────────────────
+# Fonte: geoftp.ibge.gov.br → organizacao_do_territorio → malhas_territoriais →
+#        malhas_de_setores_censitarios__divisoes_intramunicipais → censo_2022 →
+#        setores → gpkg → UF → RS → RS_setores_CD2022.gpkg (~57 MB)
+# Filtra-se CD_MUN = 4314902 → 2.744 setores de Porto Alegre.
+TRACTS_URL  = (
+    "https://geoftp.ibge.gov.br/organizacao_do_territorio/malhas_territoriais/"
+    "malhas_de_setores_censitarios__divisoes_intramunicipais/censo_2022/"
+    "setores/gpkg/UF/RS/RS_setores_CD2022.gpkg"
+)
+TRACTS_RS = DATA / "rs_setores_2022.gpkg"
+TRACTS    = DATA / "poa_tracts_2022.gpkg"
+MUNICIPIO = "4314902"
 
-TRACTS = DATA / "poa_tracts_2022.gpkg"
 
 def baixar_malha_setores():
     if TRACTS.exists():
-        print(f"✓ poa_tracts_2022.gpkg já existe — pulando")
+        print("✓ poa_tracts_2022.gpkg já existe — pulando")
         return
-    print("↓ Baixando malha de setores 2022 (geobr) ...")
-    try:
-        import geopandas as gpd
-        # API do IBGE para setores censitários 2022 de POA
-        url = (
-            "https://servicodados.ibge.gov.br/api/v3/malhas/municipios/4314902"
-            "?formato=application/vnd.geo+json&qualidade=maxima&intrarregiao=setor"
-        )
-        gdf = gpd.read_file(url)
-        gdf.to_file(TRACTS, driver="GPKG")
-        print(f"  ✓ poa_tracts_2022.gpkg — {len(gdf)} setores")
-    except Exception as e:
-        print(f"  [AVISO] Falha no download automático: {e}")
-        print("  Download manual: https://geoftp.ibge.gov.br/organizacao_do_territorio/")
-        print("  malhas_territoriais/malhas_de_setores_censitarios__divisoes_intramunicipais/")
-        print("  censo_2022/setores_censitarios_shp/RS/")
-        print(f"  Salvar o .gpkg em: {TRACTS}")
+    print("↓ Baixando malha de setores 2022 do RS (~57 MB) ...")
+    import urllib.request
+    urllib.request.urlretrieve(TRACTS_URL, TRACTS_RS)
+
+    import geopandas as gpd
+    print("  Filtrando setores de Porto Alegre ...")
+    gdf = gpd.read_file(TRACTS_RS)
+    poa = gdf[gdf["CD_MUN"] == MUNICIPIO].copy()
+    # Compatibilidade com os módulos que usam a nomenclatura do geobr
+    poa["code_tract"] = poa["CD_SETOR"]
+    poa.to_file(TRACTS, driver="GPKG")
+    TRACTS_RS.unlink()
+    print(f"  ✓ poa_tracts_2022.gpkg — {len(poa)} setores "
+          f"({poa['CD_SETOR'].nunique()} únicos; esperado: 2.744)")
 
 
-# ─── 3. Banco de agregados por setor (Censo 2022 — já em data/) ──────────────
-# Fonte: IBGE — Resultados do Universo do Censo Demográfico 2022
-# URL: https://www.ibge.gov.br/estatisticas/sociais/habitacao/22827-censo-demografico-2022.html
-# → Resultados → Agregados por setores censitários → RS
-# O arquivo banco_agregados_poa_setores.csv já está versionado em data/ (4.5 MB,
-# filtrado para Porto Alegre a partir do arquivo estadual original de ~800 MB).
-# Para regenerar a partir do arquivo estadual completo, ver DOCUMENTACAO_METODOLOGICA.md.
-
+# ─── 3. Banco de agregados por setor (já versionado ou gerado) ───────────────
 def verificar_banco_setores():
     f = DATA / "banco_agregados_poa_setores.csv"
     if f.exists():
-        import subprocess
-        n = subprocess.run(["wc", "-l", str(f)], capture_output=True, text=True)
+        import subprocess as sp
+        n = sp.run(["wc", "-l", str(f)], capture_output=True, text=True)
         print(f"✓ banco_agregados_poa_setores.csv — {n.stdout.strip()} linhas (2.745 esperado)")
     else:
         print("✗ banco_agregados_poa_setores.csv AUSENTE")
-        print("  Baixar de: https://www.ibge.gov.br/estatisticas/sociais/habitacao/22827-censo-demografico-2022.html")
-        print("  → Resultados do Universo → Agregados por setores → RS → filtrar CD_MUNICIPIO=4314902")
+        print("  Gerar com: python modulos/00_construir_banco_setores.py")
+        print("  (precisa dos XLSXs do IBGE em inputs/agregados_ibge/ — ~7 GB)")
 
 
 # ─── 4. Territórios da APS (KMZ — SMS Porto Alegre) ─────────────────────────
-# Fonte: Secretaria Municipal de Saúde de Porto Alegre
-# O arquivo Territorios_AP.kmz está versionado em inputs/ deste repositório.
-
 def verificar_kmz():
     f = INPUTS / "Territorios_AP.kmz"
     if f.exists():
         print(f"✓ Territorios_AP.kmz — {f.stat().st_size/1024:.0f} KB")
     else:
         print("✗ Territorios_AP.kmz AUSENTE")
-        print("  Fonte: Secretaria Municipal de Saúde de Porto Alegre (SMS POA)")
-        print("  Contato: http://www2.portoalegre.rs.gov.br/sms/")
+        print("  Fonte: Mapa público dos Territórios da APS de Porto Alegre")
+        print("  https://www.google.com/maps/d/u/0/viewer?mid=119gTW9fF1HCImSAMSrlHrOJkdqE")
 
-
-# ─── Pipeline ─────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     print("=" * 60)
