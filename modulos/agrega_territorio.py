@@ -121,6 +121,28 @@ def agregar_censo_por_us(banco: pd.DataFrame, comp: pd.DataFrame) -> pd.DataFram
     agg = pd.DataFrame(index=m.groupby("Unidade de Saúde").groups.keys())
     agg.index.name = "Unidade de Saúde"
 
+    # Tipo de setor: CD_TIPO do arquivo básico (área ponderada por tipo)
+    # 0 = Não especial, 1 = Favela/Comunidade, 2 = Quartel, 4 = Baixo Patamar,
+    # 5 = Indígena, 6 = Prisional, 7 = Hospital/ILPI, 9 = Quilombola
+    MAPA_TIPO = {0: "Não especial", 1: "Favela/Comunidade", 2: "Quartel",
+                 4: "Baixo Patamar", 5: "Indígena", 6: "Prisional",
+                 7: "Hospital/ILPI", 9: "Quilombola"}
+    if "CD_TIPO" in m.columns:
+        m["CD_TIPO"] = pd.to_numeric(m["CD_TIPO"], errors="coerce").fillna(0).astype(int)
+        m["_tipo_setor_nome"] = m["CD_TIPO"].map(MAPA_TIPO)
+        # % da área ponderada da US em cada tipo de setor
+        m["_area_tipo"] = m["AREA_KM2"] * m["fator_proporcao"]
+        tipo_us = (m.groupby(["Unidade de Saúde", "_tipo_setor_nome"])["_area_tipo"]
+                   .sum().unstack(fill_value=0))
+        tot_area = tipo_us.sum(axis=1)
+        for tipo in MAPA_TIPO.values():
+            if tipo in tipo_us.columns:
+                agg[f"%_area_{tipo}"] = tipo_us[tipo] / tot_area * 100
+        # formato v1 (valores absolutos ponderados)
+        for tipo in MAPA_TIPO.values():
+            if tipo in tipo_us.columns:
+                agg[tipo] = tipo_us[tipo]
+
     # População e composição
     if "V01006_pond" in m.columns:
         agg["População Alocada à US"] = _pond("V01006")
