@@ -3,104 +3,95 @@
 Pipeline modular para análise sociodemográfica das Unidades de Saúde de Porto Alegre,
 cruzando Censo Demográfico 2022 (IBGE), CNEFE e Grades Populacionais.
 
-> **📄 Para o raciocínio completo, validações, comparações e desafios técnicos, leia
-> [`DOCUMENTACAO_METODOLOGICA.md`](DOCUMENTACAO_METODOLOGICA.md)** — inclui a auditoria
-> do estado inicial, a fundamentação na literatura, os testes de validação (Grade IBGE 2022
-> e HRSL) e as limitações a declarar em publicações.
+> **📄 Para o raciocínio completo, validações e desafios técnicos, leia
+> [`DOCUMENTACAO_METODOLOGICA.md`](DOCUMENTACAO_METODOLOGICA.md)**
 
+---
 
-## Visão geral
+## Como reproduzir
 
-```
-                        ┌─────────────────────────────────────────────────┐
-                        │  ENTRADAS (dados brutos)                       │
-                        │  • CNEFE POA (endereços + coordenadas)          │
-                        │  • Malha de setores censitários 2022            │
-                        │  • Banco agregados por setor (Censo 2022)       │
-                        │  • Grade Estatística 2022 (células 200m/1km)    │
-                        │  • Territórios da APS (KMZ)                     │
-                        └──────────────────┬──────────────────────────────┘
-                                           ▼
-        ┌────────────────────────────────────────────────────────────────┐
-        │  MÓDULO 1 — agrega_territorio.py                              │
-        │  (nível: Unidade de Saúde — HOJE, sem endereço do paciente)    │
-        │  • Join espacial endereços CNEFE ↔ territórios US              │
-        │  • Indicadores do território como um todo                      │
-        │  • Densidade, estabelecimentos, domicílios, validação          │
-        └────────────────────────────────────────────────────────────────┘
-                                           ▼
-        ┌────────────────────────────────────────────────────────────────┐
-        │  MÓDULO 2 — endereco_para_setor.py                            │
-        │  (nível: Setor censitário — FUTURO, com endereço do paciente)  │
-        │  • Normaliza endereço textual (rua + número)                   │
-        │  • Geocodifica via CNEFE local (sem API externa)               │
-        │  • Atribui setor censitário + variáveis sociais do setor       │
-        └────────────────────────────────────────────────────────────────┘
-```
-
-## Dados por nível de análise
-
-### Nível 1 — Território da US (Módulo 1)
-
-Para cada unidade de saúde (133), com as limitações de não ter o endereço do paciente:
-
-| Grupo | Variáveis |
-|---|---|
-| População | pop_alocada_us (CNEFE), pop_grade2022 (Grade IBGE), pop_hrsl, % pop aproximada |
-| Demografia | sexo, faixas etárias (11), cor/raça |
-| Escolaridade | alfabetização geral/M/F |
-| Renda | média ponderada, mediana, CV, razão média/mediana |
-| Domicílios CNEFE | domicílios particulares, coletivos, casas, vilas/cond, apartamentos |
-| Estabelecimentos CNEFE | ensino, saúde, religiosos, outras finalidades, em construção |
-| Território | área km², densidade hab/km², densidade end/km², % apartamentos |
-| Validação | dif% vs Grade 2022 e HRSL (correlação > 0,99) |
-
-### Nível 2 — Setor censitário (Módulo 2)
-
-Com o endereço textual do paciente (após comitê de ética):
-
-| Grupo | Variáveis (do setor do paciente) |
-|---|---|
-| Renda | V06004 média, V06006 mediana, V06005 variância |
-| Educação | V00644..V00656 alfabetização |
-| Demografia | V01006..V01041 sexo/faixas etárias |
-| Cor/raça | V01317..V01331 |
-| Domicílios | V00001..V00007 + características |
-| Território | CD_TIPO (favela, urbano, etc.), AREA_KM2 |
-
-**Limitações (declarar em metodologia):**
-- Falácia ecológica: valor do setor ≠ valor do indivíduo
-- Setores com "X" (sigilo) → tratados como NaN
-- Endereços não encontrados no CNEFE → fluxo de fallback (ver Módulo 2)
-
-## Arquivos de entrada (esperados em `inputs/`)
-
-| Arquivo | Origem | Descrição |
-|---|---|---|
-| `cnefe_poa.csv` | IBGE FTP | 762k endereços com lat/lon, espécie, tipo edificação |
-| `poa_tracts_2022.gpkg` | geobr/IBGE | Malha 2.744 setores censitários |
-| `banco_agregados_poa_setores.csv` | Drive (ETL) | 626 colunas por setor (Censo 2022) |
-| `Territorios_AP.kmz` | SMS POA | 132 polígonos de territórios |
-| `grade_id14.shp` | IBGE FTP | Grade Estatística 2022 (quadrante RS/POA) |
-| `tabelas_unidades_saude.xlsx` | Drive (ETL) | Indicadores base por US |
-
-## Execução
+### 1. Clonar e instalar dependências
 
 ```bash
-# Módulo 1 — gera tabelas_unidades_saude_v2.xlsx (nível US)
-python modulos/agrega_territorio.py
-
-# Módulo 2 — gera setores dos pacientes (nível setor)
-python modulos/endereco_para_setor.py inputs/pacientes_enderecos.csv -o outputs/pacientes_setores.csv
+git clone https://github.com/abueno78/censo-territorios-aps
+cd censo-territorios-aps
+pip install -r requirements.txt
 ```
 
-## Metodologia (resumo para citação)
+### 2. Verificar / baixar dados brutos
 
-1. **CNEFE como proxy espacial** — cada endereço georreferenciado (99,7% geocodificados
-   no Brasil; nível 1-3 em 99,6% de POA) é alocado ao território da US via `sjoin
-   within`; populações de setores partilhados são distribuídas proporcionalmente ao
-   nº de endereços (fator_proporcao).
-2. **Validação tripla** — alocação por US comparada com (a) Grade Estatística 2022
-   (IBGE, oficial; correlação 0,999), (b) HRSL 2018 (satélite, 30m; correlação 0,992).
-3. **Referências**: IBGE (2025) Grade Estatística 2022 — Notas metodológicas 01/2025;
-   Salgado et al. (2025) Revista Brasileira de Cartografia v.77.
+```bash
+python baixar_dados.py
+```
+
+Este script verifica se os dados necessários estão presentes e baixa
+automaticamente o que for possível. Ver detalhes na seção **Dados** abaixo.
+
+### 3. Rodar o pipeline
+
+```bash
+# Módulo 1 — gera outputs/tabelas_unidades_saude_v2.xlsx
+python modulos/agrega_territorio.py
+```
+
+---
+
+## Dados
+
+### Arquivos já versionados neste repositório
+
+| Arquivo | Origem | Descrição |
+|---------|--------|-----------|
+| `data/banco_agregados_poa_setores.csv` | IBGE Censo 2022 | 2.744 setores × 626 indicadores (filtrado para POA) |
+| `data/cnefe_poa.parquet` | IBGE FTP | 762 mil endereços de POA com lat/lon |
+| `data/composicao_com_hrsl.csv` | gerado | Proporção de cada setor por unidade de saúde |
+| `data/poa_tracts_2022.gpkg` | geobr/IBGE | Malha de setores censitários 2022 |
+| `data/validacao_tripla_por_us.csv` | gerado | Validação da alocação vs Grade IBGE e HRSL |
+| `data/tabelas_unidades_saude.xlsx` | gerado | Indicadores base por unidade de saúde (v1) |
+| `inputs/Territorios_AP.kmz` | SMS POA | Polígonos dos 133 territórios de saúde |
+
+### Fontes originais dos dados brutos
+
+| Dado | URL de download |
+|------|----------------|
+| CNEFE Porto Alegre | [FTP IBGE — RS_Rio_Grande_do_Sul.zip](https://ftp.ibge.gov.br/Censos/Censo_Demografico_2022/Cadastro_Nacional_de_Enderecos_Fins_Estatisticos/Municipios/RS_Rio_Grande_do_Sul.zip) |
+| Malha de setores 2022 | [API IBGE Malhas](https://servicodados.ibge.gov.br/api/v3/malhas/municipios/4314902?formato=application/vnd.geo+json&qualidade=maxima&intrarregiao=setor) |
+| Agregados por setor (Censo 2022) | [IBGE — Censo 2022 resultados do universo](https://www.ibge.gov.br/estatisticas/sociais/habitacao/22827-censo-demografico-2022.html) → Agregados por setores → RS |
+| Territórios da APS | Secretaria Municipal de Saúde de Porto Alegre (SMS POA) |
+
+> **Nota:** os arquivos já processados estão versionados em `data/` para
+> que a reprodução não dependa de baixar centenas de MB. O script
+> `baixar_dados.py` documenta a origem de cada um e os regenera se necessário.
+
+---
+
+## Estrutura
+
+```
+censo-territorios-aps/
+├── baixar_dados.py              ← verifica/baixa os dados brutos
+├── requirements.txt             ← dependências Python
+├── modulos/
+│   ├── config.py                ← caminhos e constantes centralizados
+│   ├── 00_prepara_dados.py      ← CNEFE CSV → parquet
+│   └── agrega_territorio.py     ← pipeline principal → tabelas_unidades_saude_v2.xlsx
+├── data/                        ← dados processados (versionados)
+├── inputs/                      ← dados de entrada externos
+└── outputs/                     ← resultados gerados
+    └── tabelas_unidades_saude_v2.xlsx   ← SAÍDA PRINCIPAL (133 US × 83 indicadores)
+```
+
+---
+
+## Saída principal
+
+**`outputs/tabelas_unidades_saude_v2.xlsx`** (aba `Indicadores_Completos_v2`)
+- 133 unidades de saúde × 83 indicadores
+- Chave para merge externo: coluna `CNES` (7 dígitos com zero à esquerda)
+- Utilizado pela tese via repositório `abueno78/tese-analise-exploratoria`
+
+## Método (resumo)
+
+1. Cada endereço CNEFE é atribuído ao território da US por join espacial (`within`)
+2. Setores partilhados por mais de uma US têm população distribuída proporcionalmente ao nº de endereços (`fator_proporcao`)
+3. Validação: correlação 0,999 com Grade Estatística IBGE 2022 e 0,992 com HRSL (satélite)
