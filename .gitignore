@@ -10,10 +10,13 @@ venv/
 .idea/
 .ruby-lsp/
 
-# Dados brutos grandes (re-geráveis pelos scripts 00_prepara_dados.py)
-inputs/*.csv
-inputs/*.zip
+# XLSXs brutos do IBGE (centenas de MB cada — baixar via 00_construir_banco_setores.py)
+inputs/agregados_ibge/
 
 # Arquivos temporários de análise
 *.npy
 *.log
+
+# Outputs gerados (regeneráveis pelo pipeline)
+outputs/*.png
+outputs/*.csv

@@ -1,16 +1,14 @@
 # Pipeline Dados Censo → Territórios da Atenção Primária (POA)
 
-Pipeline modular para análise sociodemográfica das Unidades de Saúde de Porto Alegre,
-cruzando Censo Demográfico 2022 (IBGE), CNEFE e Grades Populacionais.
+Pipeline modular e reprodutível para análise sociodemográfica das Unidades de Saúde
+de Porto Alegre, cruzando Censo Demográfico 2022 (IBGE), CNEFE e Grades Populacionais.
 
-> **📄 Para o raciocínio completo, validações e desafios técnicos, leia
-> [`DOCUMENTACAO_METODOLOGICA.md`](DOCUMENTACAO_METODOLOGICA.md)**
+> **📄 Documentação completa:** [`DOCUMENTACAO_METODOLOGICA.md`](DOCUMENTACAO_METODOLOGICA.md)
+> — inclui fundamentação metodológica, validações e limitações a declarar em publicações.
 
 ---
 
-## Como reproduzir
-
-### 1. Clonar e instalar dependências
+## Como reproduzir do zero
 
 ```bash
 git clone https://github.com/abueno78/censo-territorios-aps
@@ -18,80 +16,104 @@ cd censo-territorios-aps
 pip install -r requirements.txt
 ```
 
-### 2. Verificar / baixar dados brutos
+Depois seguir a sequência abaixo.
+
+---
+
+## Sequência dos módulos
+
+### Etapa 0-A — Banco de setores censitários (opcional — já em `data/`)
+
+O arquivo `data/banco_agregados_poa_setores.csv` (2.745 setores × 626 variáveis do
+Censo 2022, filtrado para Porto Alegre) **já está versionado** neste repositório.
+
+Para regenerá-lo a partir dos XLSXs brutos do IBGE:
+
+1. Baixar os arquivos estaduais do RS em:
+   https://www.ibge.gov.br/estatisticas/sociais/habitacao/22827-censo-demografico-2022.html
+   → Resultados do Universo → Agregados por setores censitários → RS
+2. Colocar os XLSXs em `inputs/agregados_ibge/`
+3. Rodar: `python modulos/00_construir_banco_setores.py`
+
+### Etapa 0-B — Dados geoespaciais e CNEFE (opcional — já em `data/`)
+
+O script `baixar_dados.py` documenta a origem e regenera os arquivos geoespaciais
+caso não estejam presentes:
 
 ```bash
 python baixar_dados.py
 ```
 
-Este script verifica se os dados necessários estão presentes e baixa
-automaticamente o que for possível. Ver detalhes na seção **Dados** abaixo.
+| Arquivo | Origem | Já no repo? |
+|---------|--------|-------------|
+| `data/cnefe_poa.parquet` | IBGE FTP (CNEFE RS, ~126 MB CSV → 20 MB parquet) | ✅ Sim |
+| `data/poa_tracts_2022.gpkg` | API IBGE / geobr (malha setores 2022) | ✅ Sim |
+| `data/banco_agregados_poa_setores.csv` | Censo 2022 IBGE filtrado para POA | ✅ Sim |
+| `data/composicao_com_hrsl.csv` | Resultado do pipeline (alocação setor→US) | ✅ Sim |
+| `inputs/Territorios_AP.kmz` | Secretaria Municipal de Saúde de Porto Alegre | ✅ Sim |
 
-### 3. Rodar o pipeline
+### Etapa 1 — Gerar `tabelas_unidades_saude_v2.xlsx`
 
 ```bash
-# Módulo 1 — gera outputs/tabelas_unidades_saude_v2.xlsx
 python modulos/agrega_territorio.py
 ```
 
----
-
-## Dados
-
-### Arquivos já versionados neste repositório
-
-| Arquivo | Origem | Descrição |
-|---------|--------|-----------|
-| `data/banco_agregados_poa_setores.csv` | IBGE Censo 2022 | 2.744 setores × 626 indicadores (filtrado para POA) |
-| `data/cnefe_poa.parquet` | IBGE FTP | 762 mil endereços de POA com lat/lon |
-| `data/composicao_com_hrsl.csv` | gerado | Proporção de cada setor por unidade de saúde |
-| `data/poa_tracts_2022.gpkg` | geobr/IBGE | Malha de setores censitários 2022 |
-| `data/validacao_tripla_por_us.csv` | gerado | Validação da alocação vs Grade IBGE e HRSL |
-| `data/tabelas_unidades_saude.xlsx` | gerado | Indicadores base por unidade de saúde (v1) |
-| `inputs/Territorios_AP.kmz` | SMS POA | Polígonos dos 133 territórios de saúde |
-
-### Fontes originais dos dados brutos
-
-| Dado | URL de download |
-|------|----------------|
-| CNEFE Porto Alegre | [FTP IBGE — RS_Rio_Grande_do_Sul.zip](https://ftp.ibge.gov.br/Censos/Censo_Demografico_2022/Cadastro_Nacional_de_Enderecos_Fins_Estatisticos/Municipios/RS_Rio_Grande_do_Sul.zip) |
-| Malha de setores 2022 | [API IBGE Malhas](https://servicodados.ibge.gov.br/api/v3/malhas/municipios/4314902?formato=application/vnd.geo+json&qualidade=maxima&intrarregiao=setor) |
-| Agregados por setor (Censo 2022) | [IBGE — Censo 2022 resultados do universo](https://www.ibge.gov.br/estatisticas/sociais/habitacao/22827-censo-demografico-2022.html) → Agregados por setores → RS |
-| Territórios da APS | Secretaria Municipal de Saúde de Porto Alegre (SMS POA) |
-
-> **Nota:** os arquivos já processados estão versionados em `data/` para
-> que a reprodução não dependa de baixar centenas de MB. O script
-> `baixar_dados.py` documenta a origem de cada um e os regenera se necessário.
+Lê os dados de `data/` e `inputs/`, agrega por Unidade de Saúde e salva em
+`outputs/tabelas_unidades_saude_v2.xlsx` (133 US × ~83 indicadores).
 
 ---
 
-## Estrutura
+## Arquivos de entrada
 
-```
-censo-territorios-aps/
-├── baixar_dados.py              ← verifica/baixa os dados brutos
-├── requirements.txt             ← dependências Python
-├── modulos/
-│   ├── config.py                ← caminhos e constantes centralizados
-│   ├── 00_prepara_dados.py      ← CNEFE CSV → parquet
-│   └── agrega_territorio.py     ← pipeline principal → tabelas_unidades_saude_v2.xlsx
-├── data/                        ← dados processados (versionados)
-├── inputs/                      ← dados de entrada externos
-└── outputs/                     ← resultados gerados
-    └── tabelas_unidades_saude_v2.xlsx   ← SAÍDA PRINCIPAL (133 US × 83 indicadores)
-```
+| Arquivo | Localização | Descrição |
+|---------|-------------|-----------|
+| `cnefe_poa.parquet` | `data/` | 762 mil endereços de POA com lat/lon |
+| `poa_tracts_2022.gpkg` | `data/` | 2.744 setores censitários (polígonos) |
+| `banco_agregados_poa_setores.csv` | `data/` | Censo 2022 — 626 variáveis por setor |
+| `composicao_com_hrsl.csv` | `data/` | Alocação proporcional setor → US |
+| `Territorios_AP.kmz` | `inputs/` | 133 polígonos das Unidades de Saúde |
 
 ---
 
 ## Saída principal
 
-**`outputs/tabelas_unidades_saude_v2.xlsx`** (aba `Indicadores_Completos_v2`)
-- 133 unidades de saúde × 83 indicadores
-- Chave para merge externo: coluna `CNES` (7 dígitos com zero à esquerda)
-- Utilizado pela tese via repositório `abueno78/tese-analise-exploratoria`
+**`outputs/tabelas_unidades_saude_v2.xlsx`** — aba `Indicadores_Completos_v2`
 
-## Método (resumo)
+133 Unidades de Saúde × ~83 indicadores:
 
-1. Cada endereço CNEFE é atribuído ao território da US por join espacial (`within`)
-2. Setores partilhados por mais de uma US têm população distribuída proporcionalmente ao nº de endereços (`fator_proporcao`)
-3. Validação: correlação 0,999 com Grade Estatística IBGE 2022 e 0,992 com HRSL (satélite)
+| Grupo | Variáveis |
+|-------|-----------|
+| População | `População Alocada à US`, faixas etárias, sexo |
+| Cor/raça | `pct_Branca`, `pct_Preta`, `pct_Parda`, `pct_Amarela`, `pct_Indígena` |
+| Escolaridade | `taxa_alf_geral` |
+| Renda (v2 — sem bug) | `renda_media_winsor`, `renda_mediana_aprox`, `renda_dp`, `renda_cv` |
+| Domicílios | `pct_apartamentos`, tipo de setor (Favela/Comunidade, etc.) |
+| Território | `area_km2_ponderada`, `densidade_hab_km2`, `coordenadoria_saude`, `distrito_sanitario` |
+| CNEFE | `n_enderecos_total`, tipos de edificação |
+| Identificação | `CNES` |
+
+> **Variáveis de renda:** a v1 tinha um bug onde a média ponderada somava médias
+> sem dividir pelo peso total, gerando valores absurdos (máximo R$ 14 milhões).
+> A v2 corrige isso com winsorização p1/p99 ≤ R$ 100 mil e agregação correta.
+> As variáveis `renda_media_ponderada` e `cv_renda` da v1 **não são geradas**.
+
+---
+
+## Metodologia resumida
+
+1. Cada endereço do CNEFE é alocado ao território da US via join espacial (`sjoin within`)
+2. Em setores compartilhados entre duas ou mais US, a população é distribuída
+   proporcionalmente ao número de endereços em cada parte (`fator_proporcao`)
+3. Indicadores do Censo (contagens) são multiplicados pelo fator e somados por US
+4. Validação: correlação com Grade Estatística IBGE 2022 = **r = 0,999**
+
+Para detalhes, ver [`DOCUMENTACAO_METODOLOGICA.md`](DOCUMENTACAO_METODOLOGICA.md).
+
+---
+
+## Dependências
+
+```bash
+pip install -r requirements.txt
+# pandas, pyarrow, geopandas, fiona, openpyxl, numpy, requests
+```
