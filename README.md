@@ -86,7 +86,7 @@ Lê os dados de `data/` e `inputs/`, agrega por Unidade de Saúde e salva em
 | População | `População Alocada à US`, faixas etárias, sexo |
 | Cor/raça | `pct_Branca`, `pct_Preta`, `pct_Parda`, `pct_Amarela`, `pct_Indígena` |
 | Escolaridade | `taxa_alf_geral` |
-| Renda (v2 — sem bug) | `renda_media_winsor`, `renda_mediana_aprox`, `renda_dp`, `renda_cv` |
+| Renda (v2 — sem bug) | `renda_media_winsor`, `renda_dp`, `renda_cv` |
 | Domicílios | `pct_apartamentos`, tipo de setor (Favela/Comunidade, etc.) |
 | Território | `area_km2_ponderada`, `densidade_hab_km2`, `coordenadoria_saude`, `distrito_sanitario` |
 | CNEFE | `n_enderecos_total`, tipos de edificação |

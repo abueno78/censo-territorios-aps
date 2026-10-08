@@ -258,17 +258,14 @@ def principal():
     for col, nome in raca_nomes.items():
         df_raca_us[f"pct_{nome}"] = df_raca_us[col] / total_raca * 100
 
-    # — Renda (V06006 → renda_mediana_aprox = média ponderada por responsáveis)
+    # — Renda (apenas total de responsáveis; a renda vem do bloco winsorizado v2)
+    #   O usuário decidiu: usar renda_media_winsor; sem renda_mediana_aprox.
     df_r = comp.merge(df_renda, on="CD_SETOR", how="inner")
-    for c in ["V06001", "V06002", "V06003", "V06004", "V06005", "V06006"]:
-        df_r[c] = pd.to_numeric(df_r[c], errors="coerce")
-    df_r["peso_renda"] = df_r["V06001"] * df_r["fator_proporcao"]
+    df_r["V06001"] = pd.to_numeric(df_r["V06001"], errors="coerce")
+    df_r["fator_proporcao"] = pd.to_numeric(df_r["fator_proporcao"], errors="coerce")
     df_renda_us = df_r.groupby("Unidade de Saúde").apply(
         lambda g: pd.Series({
             "total_responsaveis": (g["V06001"] * g["fator_proporcao"]).sum(),
-            "renda_mediana_aprox":
-                (g["V06006"] * g["peso_renda"]).sum() / g["peso_renda"].sum()
-                if g["peso_renda"].sum() > 0 else None,
         }), include_groups=False).reset_index()
 
     # — Domicílios (V00001..V00007 do dom1; v0008/v0009 do básico)
@@ -296,7 +293,7 @@ def principal():
         df_raca_us[["Unidade de Saúde", "pct_Branca", "pct_Parda", "pct_Preta",
                     "pct_Amarela", "pct_Indígena"]], on="Unidade de Saúde", how="left")
     indicadores = indicadores.merge(
-        df_renda_us[["Unidade de Saúde", "renda_mediana_aprox", "total_responsaveis"]],
+        df_renda_us[["Unidade de Saúde", "total_responsaveis"]],
         on="Unidade de Saúde", how="left")
     indicadores = indicadores.merge(
         df_dom_us[["Unidade de Saúde", "dom_particulares_permanentes_ocupados",
