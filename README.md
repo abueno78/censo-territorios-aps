@@ -97,6 +97,32 @@ Lê os dados de `data/` e `inputs/`, agrega por Unidade de Saúde e salva em
 > A v2 corrige isso com winsorização p1/p99 ≤ R$ 100 mil e agregação correta.
 > As variáveis `renda_media_ponderada` e `cv_renda` da v1 **não são geradas**.
 
+### Como `renda_media_winsor` é construída (em 3 passos)
+
+1. **Winsorização no nível do setor censitário** — a renda média do responsável
+   (V06004 do Censo 2022) de cada setor é cortada nos percentis p1/p99, com teto
+   de R$ 100 mil. Elimina valores extremos imputados pelo IBGE (ex.: setores com
+   renda média declarada acima de R$ 100 mil).
+2. **Peso de cada setor na unidade de saúde**:
+   ```
+   peso = n° de responsáveis do setor (V06001) × fator_proporcao
+   ```
+   onde `fator_proporcao` é a fração do setor alocada àquela US (proporcional
+   ao número de endereços CNEFE dentro do território).
+3. **Média ponderada por unidade de saúde**:
+   ```
+   renda_media_winsor = Σ(renda_setor_winsorizada × peso) / Σ(peso)
+   ```
+
+`renda_dp` e `renda_cv` seguem o mesmo esquema, combinando a variância DENTRO
+dos setores (V06005, divulgada pelo IBGE) com a variância ENTRE setores
+(dispersão das médias setoriais) — fórmula de variância total de estratos.
+
+> **Nota para análise:** `renda_media_winsor` é uma variável **ecológica do
+> território** — todas as linhas de encaminhamento da mesma unidade de saúde
+> carregam o mesmo valor. Correlações no nível do encaminhamento serão fracas
+> por construção; para medir associação com o território, agregar por unidade.
+
 ---
 
 ## Metodologia resumida
